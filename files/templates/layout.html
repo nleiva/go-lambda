@@ -1,0 +1,24 @@
+{{define "layout"}}
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{{template "title"}}</title>
+  <link rel="stylesheet" href="https://nleiva-public.s3.amazonaws.com/stylesheets/main.css">
+</head>
+<body>
+  {{template "body"}}
+  <img src="https://nleiva-public.s3.amazonaws.com/images/GOPHER_MIC_DROP.png" alt="A logo">
+  <ul> <!-- Make these variable -->
+    <li><b>IP address</b>: {{.IP}}</li>
+    <li><b>Country</b>: {{.Country}}</li>
+    <li><b>Platform</b>: {{.Platf}}</li>
+    <li><b>OS</b>: {{.OS}}</li>
+    <li><b>Browser</b>: {{.Browser}}</li>
+    <li><b>Target</b>: {{.Host}}</li>
+    <li><b>Mobile</b>? {{.Mob}}</li>
+    <li><b>Bot</b>? {{.Bot}}</li>
+  </ul>
+</body>
+</html>
+{{end}}

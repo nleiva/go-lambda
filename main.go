@@ -3,11 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -28,41 +28,69 @@ type data struct {
 	Bot      bool   `json:"Bot"`
 }
 
-func prettyprint(b []byte) ([]byte, error) {
-	var out bytes.Buffer
-	err := json.Indent(&out, b, "", "  ")
-	return out.Bytes(), err
-}
+func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (o events.APIGatewayProxyResponse, e error) {
+	fmt.Printf("Processing request data for request %s, from IP %s.\n",
+		request.RequestContext.RequestID,
+		request.RequestContext.Identity.SourceIP)
 
-func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	fmt.Printf("Processing request data for request %s.\n", request.RequestContext.RequestID)
-	// fmt.Printf("Body size = %d.\n", len(request.Body))
+	o = events.APIGatewayProxyResponse{
+		StatusCode: http.StatusInternalServerError,
+		Body:       http.StatusText(http.StatusInternalServerError),
+	}
+
+	check := func(err error) bool {
+		if err != nil {
+			fmt.Println(err.Error())
+			o = events.APIGatewayProxyResponse{
+				Body: http.StatusText(http.StatusInternalServerError) + ": " + err.Error(),
+			}
+			return true
+		}
+		return false
+	}
 
 	statikFS, err := fs.New()
-	if err != nil {
-		fmt.Println(err.Error())
+	if check(err) {
+		return
 	}
 
-	// Access individual files by their paths.
-	r, err := statikFS.Open("/test.txt")
-	if err != nil {
-		fmt.Println(err.Error())
+	// Return a 404 if the requested template doesn't exist. HARDCODED for now.
+	fp, err := statikFS.Open(filepath.Join("/templates", "example.html"))
+	if check(err) {
+		return
 	}
-	defer r.Close()
-	contents, err := ioutil.ReadAll(r)
-	if err != nil {
-		fmt.Println(err.Error())
+	defer fp.Close()
+
+	lp, err := statikFS.Open("/templates/layout.html")
+	if check(err) {
+		return
+	}
+	defer lp.Close()
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(lp)
+	lps := buf.String()
+
+	// https://play.golang.org/p/DUkUAHdIGo3
+	t, err := template.New("base").Parse(lps)
+	if check(err) {
+		return
 	}
 
-	fmt.Println(string(contents))
+	buf = new(bytes.Buffer)
+	buf.ReadFrom(fp)
+	fps := buf.String()
+
+	tmpl, err := t.New("layout").Parse(fps)
+	if check(err) {
+		return
+	}
 
 	var ip string
 	if val, ok := request.Headers["X-Forwarded-For"]; ok {
 		s := strings.Split(val, ",")
 		ip = s[0]
 	}
-
-	sip := request.RequestContext.Identity.SourceIP
 
 	var sys string
 	if val, ok := request.Headers["User-Agent"]; ok {
@@ -85,7 +113,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	}
 
 	d := data{
-		IP:       ip + " and " + sip,
+		IP:       ip,
 		Country:  c,
 		Platf:    ua.Platform(),
 		OS:       ua.OS(),
@@ -96,23 +124,19 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		Host:     h,
 	}
 
-	// The APIGatewayProxyResponse.Body field needs to be a string, so
-	// we marshal the record into JSON.
-	js, err := json.Marshal(d)
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusInternalServerError,
-			Body:       http.StatusText(http.StatusInternalServerError),
-		}, nil
+	var b strings.Builder
+	err = tmpl.ExecuteTemplate(&b, "layout", d)
+	if check(err) {
+		return
 	}
 
-	pjs, err := prettyprint(js)
-	if err != nil {
-		fmt.Printf("error pretty printing: %s\n", string(js))
-	}
-
-	return events.APIGatewayProxyResponse{Body: string(pjs),
-		StatusCode: http.StatusOK}, nil
+	return events.APIGatewayProxyResponse{
+		Body: b.String(),
+		Headers: map[string]string{
+			"Content-Type": "text/html",
+		},
+		StatusCode: http.StatusOK,
+	}, nil
 }
 
 func main() {
