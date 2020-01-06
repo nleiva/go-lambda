@@ -18,6 +18,7 @@ import (
 
 type data struct {
 	IP       string `json:"This is your IP address"`
+	Proxy    string `json:"AWS proxy"`
 	Country  string `json:"You are visiting us from"`
 	Platf    string `json:"Platform"`
 	OS       string `json:"OS"`
@@ -25,7 +26,7 @@ type data struct {
 	Bversion string `json:"Browser Version"`
 	Host     string `json:"Target host"`
 	Mob      bool   `json:"Mobile"`
-	Bot      bool   `json:"Bot"`
+	Bot      bool   `json:"Are you a bot"`
 }
 
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (o events.APIGatewayProxyResponse, e error) {
@@ -68,7 +69,10 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	defer lp.Close()
 
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(lp)
+	_, err = buf.ReadFrom(lp)
+	if check(err) {
+		return
+	}
 	lps := buf.String()
 
 	// https://play.golang.org/p/DUkUAHdIGo3
@@ -78,7 +82,10 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	}
 
 	buf = new(bytes.Buffer)
-	buf.ReadFrom(fp)
+	_, err = buf.ReadFrom(fp)
+	if check(err) {
+		return
+	}
 	fps := buf.String()
 
 	tmpl, err := t.New("layout").Parse(fps)
@@ -90,6 +97,11 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	if val, ok := request.Headers["X-Forwarded-For"]; ok {
 		s := strings.Split(val, ",")
 		ip = s[0]
+	}
+
+	p := "No"
+	if val, ok := request.Headers["Via"]; ok {
+		p = val
 	}
 
 	var sys string
@@ -107,7 +119,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		h = val
 	}
 
-	var c string
+	c := "Unknown"
 	if val, ok := request.Headers["CloudFront-Viewer-Country"]; ok {
 		c = val
 	}
@@ -122,6 +134,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		Mob:      ua.Mobile(),
 		Bot:      ua.Bot(),
 		Host:     h,
+		Proxy:    p,
 	}
 
 	var b strings.Builder
